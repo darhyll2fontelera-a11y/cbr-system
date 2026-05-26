@@ -12,10 +12,10 @@ $showTicket = false;
 $error      = "";
 
 if (isset($_POST['donate'])) {
-    $name      = $_POST['fullname'];
-    $email     = $_POST['email'];
-    $phone     = $_POST['phone'];
-    $address   = $_POST['address'];
+    $name      = trim($_POST['fullname']);
+    $email     = trim($_POST['email']);
+    $phone     = trim($_POST['phone']);
+    $address   = trim($_POST['address']);
     $birthdate = $_POST['birthdate'];
     $blood     = $_POST['blood'];
     $type      = 'donation';
@@ -23,19 +23,66 @@ if (isset($_POST['donate'])) {
     $hospital  = trim($_POST['hospital'] ?? 'Quiapo General Hospital');
     if (empty($hospital)) $hospital = 'Quiapo General Hospital';
 
+    // ── 1. Insert donation record ──
     $stmt = $conn->prepare(
         "INSERT INTO donations (user_id, fullname, email, phone, address, birthdate, blood_type, ticket_id, hospital, type)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     if ($stmt) {
-        $stmt->bind_param("isssssssss", $user_id, $name, $email, $phone, $address, $birthdate, $blood, $ticket_id, $hospital, $type);
+        $stmt->bind_param("isssssssss",
+            $user_id, $name, $email, $phone, $address,
+            $birthdate, $blood, $ticket_id, $hospital, $type
+        );
         if ($stmt->execute()) {
+            $donation_id = $stmt->insert_id;
+            $stmt->close();
+
+            // ── 2. Save screening answers ──
+            $sc_age       = intval($_POST['sc_age']       ?? 0);
+            $sc_weight    = floatval($_POST['sc_weight']  ?? 0);
+            $sc_q3  = $_POST['sc_last_donated']    ?? '';
+            $sc_q4  = $_POST['sc_feeling_well']    ?? '';
+            $sc_q5  = $_POST['sc_heart_condition'] ?? '';
+            $sc_q6  = $_POST['sc_diabetes']        ?? '';
+            $sc_q7  = $_POST['sc_hepatitis_hiv']   ?? '';
+            $sc_q8  = $_POST['sc_active_cancer']   ?? '';
+            $sc_q9  = $_POST['sc_travel_endemic']  ?? '';
+            $sc_q10 = $_POST['sc_tattoo_piercing'] ?? '';
+            $sc_q11 = $_POST['sc_iv_drugs']        ?? '';
+            $sc_q12 = $_POST['sc_recent_procedure']?? '';
+            $sc_q13 = $_POST['sc_pregnant']        ?? '';
+            $sc_q14 = $_POST['sc_medications']     ?? '';
+            $sc_q15 = $_POST['sc_recent_vaccine']  ?? '';
+            $eligible = 'yes';
+
+            $sc = $conn->prepare(
+                "INSERT INTO donor_screening
+                 (donation_id, user_id, sc_age, sc_weight,
+                  sc_last_donated, sc_feeling_well, sc_heart_condition, sc_diabetes,
+                  sc_hepatitis_hiv, sc_active_cancer, sc_travel_endemic, sc_tattoo_piercing,
+                  sc_iv_drugs, sc_recent_procedure, sc_pregnant, sc_medications,
+                  sc_recent_vaccine, eligible)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            );
+            if ($sc) {
+                $sc->bind_param(
+                    "iiidssssssssssssss",
+                    $donation_id, $user_id, $sc_age, $sc_weight,
+                    $sc_q3, $sc_q4, $sc_q5, $sc_q6,
+                    $sc_q7, $sc_q8, $sc_q9, $sc_q10,
+                    $sc_q11, $sc_q12, $sc_q13, $sc_q14,
+                    $sc_q15, $eligible
+                );
+                $sc->execute();
+                $sc->close();
+            }
+
             $showTicket = true;
         } else {
-            $error = "Insert failed. Try again.";
+            $error = "Insert failed. Please try again.";
         }
     } else {
-        $error = "Preparation failed.";
+        $error = "Preparation failed. Please try again.";
     }
 }
 ?>
@@ -90,7 +137,7 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
 .pw { position:relative;z-index:1;flex:1;display:flex;align-items:flex-start;justify-content:center;padding:48px 24px }
 .split { display:flex;gap:60px;align-items:flex-start;max-width:1060px;width:100% }
 .sl { flex:1;padding-top:16px;position:sticky;top:32px }
-.sr { flex-shrink:0;width:460px }
+.sr { flex-shrink:0;width:480px }
 
 .pill { display:inline-flex;align-items:center;gap:7px;background:var(--red-m);border:1px solid var(--red-b);color:var(--red);font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;padding:5px 13px;border-radius:100px;margin-bottom:22px }
 .pdot { width:5px;height:5px;background:var(--red);border-radius:50%;animation:pdot 2.5s ease-in-out infinite }
@@ -126,6 +173,7 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
 .q-header { margin-bottom:20px }
 .q-header h3 { font-family:var(--serif);font-size:20px;color:var(--t);margin-bottom:4px }
 .q-header p { font-size:13px;color:var(--t3);font-weight:300 }
+.q-section-tag { display:inline-block;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:3px 10px;border-radius:100px;margin-bottom:10px;background:var(--red-m);border:1px solid var(--red-b);color:var(--red) }
 .progress-bar { height:4px;background:rgba(0,0,0,.06);border-radius:2px;margin-bottom:24px;overflow:hidden }
 .progress-fill { height:100%;background:var(--red);border-radius:2px;transition:width .4s ease }
 
@@ -134,7 +182,7 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
 @keyframes qin { from{opacity:0;transform:translateX(14px)} to{opacity:1;transform:translateX(0)} }
 
 .q-text { font-size:15px;font-weight:500;color:var(--t);margin-bottom:6px;line-height:1.5 }
-.q-hint { font-size:12px;color:var(--t3);margin-bottom:18px;font-weight:300 }
+.q-hint { font-size:12px;color:var(--t3);margin-bottom:18px;font-weight:300;line-height:1.6 }
 .q-options { display:flex;flex-direction:column;gap:10px }
 .q-opt { display:flex;align-items:flex-start;gap:12px;padding:13px 16px;border:2px solid var(--border-s);border-radius:10px;cursor:pointer;transition:all .2s;background:rgba(255,255,255,.6);font-size:13.5px;color:var(--t2);user-select:none;line-height:1.4 }
 .q-opt:hover { border-color:rgba(220,38,38,.3);background:var(--red-m);color:var(--t) }
@@ -236,36 +284,20 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
 }
 .hosp-locate-btn:hover { background: rgba(220,38,38,.14); border-style: solid; }
 .hosp-locate-btn:disabled { opacity: .5; cursor: not-allowed; }
-.hosp-status {
-  font-size: 12px; padding: 7px 12px; border-radius: 7px; margin-bottom: 8px;
-  display: none;
-}
+.hosp-status { font-size: 12px; padding: 7px 12px; border-radius: 7px; margin-bottom: 8px; display: none; }
 .hosp-status.loading { display:block; background:rgba(217,119,6,.08); border:1px solid rgba(217,119,6,.25); color:#92400e; }
 .hosp-status.error   { display:block; background:rgba(220,38,38,.07); border:1px solid rgba(220,38,38,.2); color:var(--red); }
-.hosp-list {
-  border: 1px solid var(--border-s); border-radius: 9px; overflow: hidden;
-  margin-bottom: 10px; max-height: 220px; overflow-y: auto;
-}
+.hosp-list { border: 1px solid var(--border-s); border-radius: 9px; overflow: hidden; margin-bottom: 10px; max-height: 220px; overflow-y: auto; }
 .hosp-list::-webkit-scrollbar { width: 4px; }
 .hosp-list::-webkit-scrollbar-thumb { background: var(--border-s); border-radius: 4px; }
-.hosp-option {
-  padding: 11px 14px; cursor: pointer; border-bottom: 1px solid rgba(0,0,0,.05);
-  transition: background .15s; font-size: 13px;
-}
+.hosp-option { padding: 11px 14px; cursor: pointer; border-bottom: 1px solid rgba(0,0,0,.05); transition: background .15s; font-size: 13px; }
 .hosp-option:last-child { border-bottom: none; }
 .hosp-option:hover { background: var(--red-m); }
 .hosp-option.selected { background: var(--red-m); border-left: 3px solid var(--red); }
 .hosp-option-name { font-weight: 500; color: var(--t); margin-bottom: 2px; }
 .hosp-option-meta { font-size: 11px; color: var(--t3); display: flex; gap: 8px; }
-.hosp-dist-badge {
-  display: inline-block; background: rgba(22,163,74,.1); border: 1px solid rgba(22,163,74,.25);
-  color: #16a34a; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 5px;
-}
-.hosp-selected-box {
-  display: none; align-items: center; gap: 10px; padding: 11px 14px;
-  background: rgba(22,163,74,.06); border: 1px solid rgba(22,163,74,.3);
-  border-radius: 9px; margin-bottom: 8px;
-}
+.hosp-dist-badge { display: inline-block; background: rgba(22,163,74,.1); border: 1px solid rgba(22,163,74,.25); color: #16a34a; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 5px; }
+.hosp-selected-box { display: none; align-items: center; gap: 10px; padding: 11px 14px; background: rgba(22,163,74,.06); border: 1px solid rgba(22,163,74,.3); border-radius: 9px; margin-bottom: 8px; }
 .hosp-selected-box.show { display: flex; }
 .hosp-selected-name { font-size: 13px; font-weight: 600; color: #15803d; flex: 1; }
 .hosp-clear { background: none; border: none; color: var(--t3); cursor: pointer; font-size: 16px; padding: 0 4px; transition: color .15s; }
@@ -273,11 +305,7 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
 .hosp-divider { display: flex; align-items: center; gap: 10px; margin: 10px 0 8px; }
 .hosp-divider span { font-size: 11px; color: var(--t3); white-space: nowrap; }
 .hosp-divider::before,.hosp-divider::after { content:''; flex:1; height:1px; background:var(--border); }
-.hosp-manual input {
-  width:100%; padding:11px 14px; background:rgba(255,255,255,.7);
-  border:1px solid var(--border-s); border-radius:9px; color:var(--t);
-  font-family:var(--sans); font-size:14px; outline:none; transition:all .2s;
-}
+.hosp-manual input { width:100%; padding:11px 14px; background:rgba(255,255,255,.7); border:1px solid var(--border-s); border-radius:9px; color:var(--t); font-family:var(--sans); font-size:14px; outline:none; transition:all .2s; }
 .hosp-manual input:focus { border-color:rgba(220,38,38,.5); background:#fff; box-shadow:0 0 0 3px rgba(220,38,38,.08); }
 .hosp-manual input::placeholder { color:rgba(0,0,0,.28); }
 
@@ -295,8 +323,8 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
 <nav>
   <a class="nlogo" href="user_dashboard.php"><div class="nicon">🩸</div><span class="ntext">Blood Donation</span></a>
   <div class="nnav">
-    <a href="request_blood_form.php" class="nlink"> Request Blood</a>
-    <a href="my_history.php" class="nlink"> My History</a>
+    <a href="request_blood_form.php" class="nlink">Request Blood</a>
+    <a href="my_history.php" class="nlink">My History</a>
     <a href="user_dashboard.php" class="nlink">← Dashboard</a>
   </div>
 </nav>
@@ -304,15 +332,19 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
 <div class="pw">
 <div class="split">
 
-<!-- LEFT -->
+<!-- LEFT PANEL -->
 <div class="sl">
   <div class="pill"><span class="pdot"></span>Registered Donor</div>
   <h1>Donate<br><em>Blood</em></h1>
-  <p>We'll run a quick eligibility screening first to ensure a safe donation for you and the recipient. It only takes a moment.</p>
-
+  <p>We'll run a quick 15-question eligibility screening first to ensure a safe donation for you and the recipient. It only takes a few minutes.</p>
+  <div class="info-cards">
+    <div class="ic"><div class="ic-icon">🩺</div><div class="ic-text"><strong>15-Step Screening</strong><span>Covers health, travel, medications & more</span></div></div>
+    <div class="ic"><div class="ic-icon">🔒</div><div class="ic-text"><strong>Private & Secure</strong><span>Your answers are saved to your profile only</span></div></div>
+    <div class="ic"><div class="ic-icon">⏱</div><div class="ic-text"><strong>Takes ~3 Minutes</strong><span>Answer honestly — your safety depends on it</span></div></div>
+  </div>
 </div>
 
-<!-- RIGHT -->
+<!-- RIGHT PANEL / CARD -->
 <div class="sr">
 <div class="card">
 
@@ -331,18 +363,23 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
   </div>
 </div>
 
-<!-- QUIZ -->
+<!-- ══════════════════════════════════════════════
+     QUIZ PANEL — 15 Questions
+     ══════════════════════════════════════════════ -->
 <div id="quizPanel" class="card-body">
   <div class="q-header">
     <h3>Eligibility Screening</h3>
-    <p>Answer honestly — your safety depends on it.</p>
+    <p>Answer honestly — your safety and the recipient's depend on it.</p>
   </div>
   <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
 
+  <!-- ── SECTION A: VITALS ── -->
+
   <!-- Q1: Age -->
   <div class="question-slide active" id="q1">
+    <span class="q-section-tag">Section A · Vitals</span>
     <div class="q-text">How old are you?</div>
-    <div class="q-hint">Donors must be between 17 and 65 years old.</div>
+    <div class="q-hint">Donors must be between 17 and 65 years old. Those under 17 or over 65 are deferred for safety.</div>
     <div class="q-input-row">
       <div class="q-input-wrap">
         <label>Age (years)</label>
@@ -351,15 +388,16 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
       <button class="q-check-btn" onclick="checkAge()">Confirm</button>
     </div>
     <div class="q-nav">
-      <span class="q-counter">Question 1 of 7</span>
+      <span class="q-counter">Question 1 of 15</span>
       <button class="q-next" id="nextQ1" onclick="goToQ(2)">Next →</button>
     </div>
   </div>
 
   <!-- Q2: Weight -->
   <div class="question-slide" id="q2">
-    <div class="q-text">What is your current weight?</div>
-    <div class="q-hint">Donors must weigh at least 50 kg (110 lbs).</div>
+    <span class="q-section-tag">Section A · Vitals</span>
+    <div class="q-text">What is your current body weight?</div>
+    <div class="q-hint">A minimum weight of 50 kg (110 lbs) is required. This protects you from volume-related side effects after donation.</div>
     <div class="q-input-row">
       <div class="q-input-wrap">
         <label>Weight (kg)</label>
@@ -368,109 +406,264 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
       <button class="q-check-btn" onclick="checkWeight()">Confirm</button>
     </div>
     <div class="q-nav">
-      <span class="q-counter">Question 2 of 7</span>
+      <span class="q-counter">Question 2 of 15</span>
       <button class="q-next" id="nextQ2" onclick="goToQ(3)">Next →</button>
     </div>
   </div>
 
+  <!-- ── SECTION B: DONATION HISTORY ── -->
+
   <!-- Q3: Last donation -->
   <div class="question-slide" id="q3">
-    <div class="q-text">Have you donated blood in the last 56 days (8 weeks)?</div>
-    <div class="q-hint">Your body needs at least 8 weeks to replenish red blood cells.</div>
+    <span class="q-section-tag">Section B · Donation History</span>
+    <div class="q-text">Have you donated whole blood in the last 56 days (8 weeks)?</div>
+    <div class="q-hint">Your body needs at least 8 weeks to fully replenish red blood cells after a whole blood donation.</div>
     <div class="q-options">
-      <div class="q-opt" onclick="selectOpt(this,'q3','no')"><span class="q-opt-icon"></span> No — it's been more than 56 days, or I've never donated</div>
-      <div class="q-opt" onclick="selectOpt(this,'q3','yes')"><span class="q-opt-icon"></span> Yes — I donated within the last 56 days</div>
+      <div class="q-opt" onclick="selectOpt(this,'q3','no')"><span class="q-opt-icon">✅</span> No — it has been more than 56 days, or I have never donated before</div>
+      <div class="q-opt" onclick="selectOpt(this,'q3','yes')"><span class="q-opt-icon">⛔</span> Yes — I donated blood within the last 56 days</div>
     </div>
     <div class="q-nav">
-      <span class="q-counter">Question 3 of 7</span>
+      <span class="q-counter">Question 3 of 15</span>
       <button class="q-next" id="nextQ3" onclick="goToQ(4)">Next →</button>
     </div>
   </div>
 
+  <!-- ── SECTION C: CURRENT HEALTH ── -->
+
   <!-- Q4: Feeling well -->
   <div class="question-slide" id="q4">
-    <div class="q-text">Are you feeling well today — no fever, cold, or active illness?</div>
-    <div class="q-hint">You must be in good health on the day of donation.</div>
+    <span class="q-section-tag">Section C · Current Health</span>
+    <div class="q-text">Are you feeling well today — free from fever, cold, cough, or any active illness?</div>
+    <div class="q-hint">You must be in good health on the day of donation. Any current illness — even mild — is grounds for a temporary deferral.</div>
     <div class="q-options">
-      <div class="q-opt" onclick="selectOpt(this,'q4','yes')"><span class="q-opt-icon"></span> Yes — I feel healthy and well today</div>
-      <div class="q-opt" onclick="selectOpt(this,'q4','no')"><span class="q-opt-icon"></span> No — I have a fever, cold, or illness</div>
+      <div class="q-opt" onclick="selectOpt(this,'q4','yes')"><span class="q-opt-icon">✅</span> Yes — I feel healthy and well today</div>
+      <div class="q-opt" onclick="selectOpt(this,'q4','no')"><span class="q-opt-icon">⛔</span> No — I have a fever, cold, cough, or active illness</div>
     </div>
     <div class="q-nav">
-      <span class="q-counter">Question 4 of 7</span>
+      <span class="q-counter">Question 4 of 15</span>
       <button class="q-next" id="nextQ4" onclick="goToQ(5)">Next →</button>
     </div>
   </div>
 
-  <!-- Q5: Pregnancy -->
+  <!-- ── SECTION D: MEDICAL HISTORY ── -->
+
+  <!-- Q5: Heart / BP / Stroke -->
   <div class="question-slide" id="q5">
-    <div class="q-text">Are you currently pregnant or have you given birth in the last 6 months?</div>
-    <div class="q-hint">Pregnant women and recent mothers are deferred for their own safety.</div>
+    <span class="q-section-tag">Section D · Medical History</span>
+    <div class="q-text">Have you ever been diagnosed with heart disease, high blood pressure (hypertension), or had a stroke?</div>
+    <div class="q-hint">Donors with cardiovascular conditions need a doctor's medical clearance before donating. This protects both you and the recipient.</div>
     <div class="q-options">
-      <div class="q-opt" onclick="selectOpt(this,'q5','no')"><span class="q-opt-icon"></span> No — this does not apply to me</div>
-      <div class="q-opt" onclick="selectOpt(this,'q5','yes')"><span class="q-opt-icon"></span> Yes — I am pregnant or gave birth recently</div>
+      <div class="q-opt" onclick="selectOpt(this,'q5','no')"><span class="q-opt-icon">✅</span> No — I have no history of heart disease, high blood pressure, or stroke</div>
+      <div class="q-opt" onclick="selectOpt(this,'q5','yes')"><span class="q-opt-icon">⛔</span> Yes — I have been diagnosed with one or more of these conditions</div>
     </div>
     <div class="q-nav">
-      <span class="q-counter">Question 5 of 7</span>
+      <span class="q-counter">Question 5 of 15</span>
       <button class="q-next" id="nextQ5" onclick="goToQ(6)">Next →</button>
     </div>
   </div>
 
-  <!-- Q6: Tattoo/Piercing -->
+  <!-- Q6: Diabetes -->
   <div class="question-slide" id="q6">
-    <div class="q-text">Have you gotten a tattoo or body piercing in the last 12 months?</div>
-    <div class="q-hint">These carry a risk of blood-borne infection requiring a 12-month deferral.</div>
+    <span class="q-section-tag">Section D · Medical History</span>
+    <div class="q-text">Do you have insulin-dependent (Type 1) or uncontrolled diabetes?</div>
+    <div class="q-hint">Insulin-dependent diabetes or poorly controlled blood sugar can pose risks during donation. Well-controlled Type 2 diabetes may be acceptable — consult your doctor.</div>
     <div class="q-options">
-      <div class="q-opt" onclick="selectOpt(this,'q6','no')"><span class="q-opt-icon"></span> No — not within the past 12 months</div>
-      <div class="q-opt" onclick="selectOpt(this,'q6','yes')"><span class="q-opt-icon"></span> Yes — I got a tattoo or piercing within the last year</div>
+      <div class="q-opt" onclick="selectOpt(this,'q6','no')"><span class="q-opt-icon">✅</span> No — I do not have insulin-dependent or uncontrolled diabetes</div>
+      <div class="q-opt" onclick="selectOpt(this,'q6','yes')"><span class="q-opt-icon">⛔</span> Yes — I have insulin-dependent or uncontrolled diabetes</div>
     </div>
     <div class="q-nav">
-      <span class="q-counter">Question 6 of 7</span>
+      <span class="q-counter">Question 6 of 15</span>
       <button class="q-next" id="nextQ6" onclick="goToQ(7)">Next →</button>
     </div>
   </div>
 
-  <!-- Q7: Medical conditions -->
+  <!-- Q7: Hepatitis / HIV / Syphilis -->
   <div class="question-slide" id="q7">
-    <div class="q-text">Do you have any of the following conditions?</div>
-    <div class="q-hint">Hepatitis B or C · HIV/AIDS · Active cancer · Currently on antibiotics or blood thinners</div>
+    <span class="q-section-tag">Section D · Medical History</span>
+    <div class="q-text">Have you ever tested positive for Hepatitis B, Hepatitis C, HIV/AIDS, or syphilis?</div>
+    <div class="q-hint">These blood-borne infections can be transmitted to recipients and result in a permanent deferral from donating blood.</div>
     <div class="q-options">
-      <div class="q-opt" onclick="selectOpt(this,'q7','no')"><span class="q-opt-icon"></span> No — none of these apply to me</div>
-      <div class="q-opt" onclick="selectOpt(this,'q7','yes')"><span class="q-opt-icon"></span> Yes — one or more of these apply to me</div>
+      <div class="q-opt" onclick="selectOpt(this,'q7','no')"><span class="q-opt-icon">✅</span> No — I have never tested positive for any of these</div>
+      <div class="q-opt" onclick="selectOpt(this,'q7','yes')"><span class="q-opt-icon">⛔</span> Yes — I have tested positive for one or more of these</div>
     </div>
     <div class="q-nav">
-      <span class="q-counter">Question 7 of 7</span>
-      <button class="q-next" id="nextQ7" onclick="evaluateEligibility()">Check Eligibility →</button>
+      <span class="q-counter">Question 7 of 15</span>
+      <button class="q-next" id="nextQ7" onclick="goToQ(8)">Next →</button>
     </div>
   </div>
+
+  <!-- Q8: Active Cancer / Blood Disorder -->
+  <div class="question-slide" id="q8">
+    <span class="q-section-tag">Section D · Medical History</span>
+    <div class="q-text">Do you currently have or have you recently been treated for active cancer, leukemia, or any blood disorder (e.g., sickle cell disease, hemophilia)?</div>
+    <div class="q-hint">Active cancer and certain blood disorders prevent safe donation. Cancer survivors who have fully recovered may be eligible — please consult your doctor.</div>
+    <div class="q-options">
+      <div class="q-opt" onclick="selectOpt(this,'q8','no')"><span class="q-opt-icon">✅</span> No — none of these currently apply to me</div>
+      <div class="q-opt" onclick="selectOpt(this,'q8','yes')"><span class="q-opt-icon">⛔</span> Yes — I currently have or am being treated for one of these</div>
+    </div>
+    <div class="q-nav">
+      <span class="q-counter">Question 8 of 15</span>
+      <button class="q-next" id="nextQ8" onclick="goToQ(9)">Next →</button>
+    </div>
+  </div>
+
+  <!-- ── SECTION E: TRAVEL HISTORY ── -->
+
+  <!-- Q9: Travel to endemic areas -->
+  <div class="question-slide" id="q9">
+    <span class="q-section-tag">Section E · Travel History</span>
+    <div class="q-text">Have you traveled to a malaria-endemic, dengue-endemic, or Zika-affected area within the last 12 months?</div>
+    <div class="q-hint">Travel to these areas may expose you to parasites or viruses that can be unknowingly transmitted via blood transfusion. Examples include parts of Africa, Southeast Asia, South America, and some provinces of the Philippines.</div>
+    <div class="q-options">
+      <div class="q-opt" onclick="selectOpt(this,'q9','no')"><span class="q-opt-icon">✅</span> No — I have not traveled to any of these areas in the past 12 months</div>
+      <div class="q-opt" onclick="selectOpt(this,'q9','yes')"><span class="q-opt-icon">⛔</span> Yes — I traveled to a malaria, dengue, or Zika area within the last year</div>
+    </div>
+    <div class="q-nav">
+      <span class="q-counter">Question 9 of 15</span>
+      <button class="q-next" id="nextQ9" onclick="goToQ(10)">Next →</button>
+    </div>
+  </div>
+
+  <!-- ── SECTION F: LIFESTYLE & RISK BEHAVIORS ── -->
+
+  <!-- Q10: Tattoo / Piercing -->
+  <div class="question-slide" id="q10">
+    <span class="q-section-tag">Section F · Lifestyle & Risk Behaviors</span>
+    <div class="q-text">Have you gotten a tattoo, body piercing, or acupuncture in the last 12 months?</div>
+    <div class="q-hint">These procedures carry a risk of blood-borne infection if not done under sterile conditions. A 12-month waiting period applies unless done at a licensed facility using sterile equipment.</div>
+    <div class="q-options">
+      <div class="q-opt" onclick="selectOpt(this,'q10','no')"><span class="q-opt-icon">✅</span> No — not within the past 12 months</div>
+      <div class="q-opt" onclick="selectOpt(this,'q10','yes')"><span class="q-opt-icon">⛔</span> Yes — I got a tattoo, piercing, or acupuncture within the last year</div>
+    </div>
+    <div class="q-nav">
+      <span class="q-counter">Question 10 of 15</span>
+      <button class="q-next" id="nextQ10" onclick="goToQ(11)">Next →</button>
+    </div>
+  </div>
+
+  <!-- Q11: IV Drug Use -->
+  <div class="question-slide" id="q11">
+    <span class="q-section-tag">Section F · Lifestyle & Risk Behaviors</span>
+    <div class="q-text">Have you ever used intravenous (IV) drugs that were not prescribed by a doctor?</div>
+    <div class="q-hint">Non-prescribed IV drug use is a permanent disqualification due to the high risk of blood-borne disease transmission. This policy exists to protect transfusion recipients.</div>
+    <div class="q-options">
+      <div class="q-opt" onclick="selectOpt(this,'q11','no')"><span class="q-opt-icon">✅</span> No — I have never used non-prescribed IV drugs</div>
+      <div class="q-opt" onclick="selectOpt(this,'q11','yes')"><span class="q-opt-icon">⛔</span> Yes — I have used non-prescribed IV drugs</div>
+    </div>
+    <div class="q-nav">
+      <span class="q-counter">Question 11 of 15</span>
+      <button class="q-next" id="nextQ11" onclick="goToQ(12)">Next →</button>
+    </div>
+  </div>
+
+  <!-- ── SECTION G: RECENT PROCEDURES ── -->
+
+  <!-- Q12: Surgery / Dental / Transfusion -->
+  <div class="question-slide" id="q12">
+    <span class="q-section-tag">Section G · Recent Procedures</span>
+    <div class="q-text">Have you had surgery, a major dental procedure, an endoscopy, or received a blood transfusion in the last 12 months?</div>
+    <div class="q-hint">These procedures may expose you to infections or require time for your body to fully recover. A waiting period is needed before you can donate safely.</div>
+    <div class="q-options">
+      <div class="q-opt" onclick="selectOpt(this,'q12','no')"><span class="q-opt-icon">✅</span> No — I have not had any of these within the last 12 months</div>
+      <div class="q-opt" onclick="selectOpt(this,'q12','yes')"><span class="q-opt-icon">⛔</span> Yes — I had surgery, a dental procedure, or a transfusion in the last year</div>
+    </div>
+    <div class="q-nav">
+      <span class="q-counter">Question 12 of 15</span>
+      <button class="q-next" id="nextQ12" onclick="goToQ(13)">Next →</button>
+    </div>
+  </div>
+
+  <!-- ── SECTION H: FOR FEMALE DONORS ── -->
+
+  <!-- Q13: Pregnancy / Breastfeeding -->
+  <div class="question-slide" id="q13">
+    <span class="q-section-tag">Section H · Pregnancy & Maternal Health</span>
+    <div class="q-text">Are you currently pregnant, have you given birth within the last 6 months, or are you currently breastfeeding?</div>
+    <div class="q-hint">Pregnancy and the postpartum period place additional demands on your body. Donation is deferred to protect both your health and your baby's. If this does not apply to you (e.g., you are male), select "No."</div>
+    <div class="q-options">
+      <div class="q-opt" onclick="selectOpt(this,'q13','no')"><span class="q-opt-icon">✅</span> No — none of these apply to me</div>
+      <div class="q-opt" onclick="selectOpt(this,'q13','yes')"><span class="q-opt-icon">⛔</span> Yes — I am pregnant, gave birth within 6 months, or am breastfeeding</div>
+    </div>
+    <div class="q-nav">
+      <span class="q-counter">Question 13 of 15</span>
+      <button class="q-next" id="nextQ13" onclick="goToQ(14)">Next →</button>
+    </div>
+  </div>
+
+  <!-- ── SECTION I: MEDICATIONS ── -->
+
+  <!-- Q14: Medications -->
+  <div class="question-slide" id="q14">
+    <span class="q-section-tag">Section I · Medications</span>
+    <div class="q-text">Are you currently taking antibiotics, blood thinners (e.g., warfarin, aspirin), or isotretinoin (Accutane)?</div>
+    <div class="q-hint">
+      These medications require a deferral period:<br>
+      • Antibiotics — wait until the full course is complete<br>
+      • Blood thinners (warfarin) — 7-day wait after last dose<br>
+      • Isotretinoin / Accutane — 30-day wait after last dose
+    </div>
+    <div class="q-options">
+      <div class="q-opt" onclick="selectOpt(this,'q14','no')"><span class="q-opt-icon">✅</span> No — I am not currently taking any of these medications</div>
+      <div class="q-opt" onclick="selectOpt(this,'q14','yes')"><span class="q-opt-icon">⛔</span> Yes — I am currently on antibiotics, blood thinners, or isotretinoin</div>
+    </div>
+    <div class="q-nav">
+      <span class="q-counter">Question 14 of 15</span>
+      <button class="q-next" id="nextQ14" onclick="goToQ(15)">Next →</button>
+    </div>
+  </div>
+
+  <!-- Q15: Recent Vaccine -->
+  <div class="question-slide" id="q15">
+    <span class="q-section-tag">Section I · Medications</span>
+    <div class="q-text">Have you received any vaccine in the last 4 weeks?</div>
+    <div class="q-hint">
+      Most live vaccines (e.g., MMR, chickenpox, yellow fever) require a 4-week deferral.<br>
+      Inactivated vaccines (e.g., flu shot, COVID-19, hepatitis B) typically require only 48 hours — if you feel well, you may still be eligible. Answer "Yes" if you received any vaccine in the last 4 weeks to be safe.
+    </div>
+    <div class="q-options">
+      <div class="q-opt" onclick="selectOpt(this,'q15','no')"><span class="q-opt-icon">✅</span> No — I have not received any vaccine in the last 4 weeks</div>
+      <div class="q-opt" onclick="selectOpt(this,'q15','yes')"><span class="q-opt-icon">⛔</span> Yes — I received a vaccine within the last 4 weeks</div>
+    </div>
+    <div class="q-nav">
+      <span class="q-counter">Question 15 of 15</span>
+      <button class="q-next" id="nextQ15" onclick="evaluateEligibility()">Check Eligibility →</button>
+    </div>
+  </div>
+
 </div><!-- /quizPanel -->
 
-<!-- RESULT: ELIGIBLE -->
+<!-- ══════════════════════════════════════════════
+     RESULT: ELIGIBLE
+     ══════════════════════════════════════════════ -->
 <div id="resultEligible" class="result-panel">
   <div class="result-top">
-    <span class="result-icon"></span>
+    <span class="result-icon">🎉</span>
     <div class="result-title">You're Eligible to Donate!</div>
-    <div class="result-sub">You meet all the criteria for a safe blood donation.</div>
+    <div class="result-sub">You passed all 15 screening questions. You are cleared for a safe blood donation.</div>
     <span class="badge-ok">✓ Cleared for Donation</span>
   </div>
   <div class="info-block good">
     <div class="info-block-title">Before You Come In</div>
     <ul class="info-list good">
-      <li>Drink plenty of water — stay well-hydrated before donating.</li>
-      <li>Eat a healthy, iron-rich meal at least 2 hours before.</li>
-      <li>Get a good night's sleep the night before.</li>
+      <li>Drink plenty of water — stay well-hydrated for at least 2 hours before donating.</li>
+      <li>Eat a healthy, iron-rich meal at least 2 hours before (avoid fatty foods).</li>
+      <li>Get a full night's sleep the night before your donation.</li>
       <li>Wear comfortable clothing with sleeves that roll up easily.</li>
+      <li>Bring a valid ID and this ticket when you arrive at the hospital.</li>
     </ul>
   </div>
   <button class="proc-btn" onclick="showDonationForm()">Proceed to Donation Form →</button>
   <a href="user_dashboard.php" class="ghost-btn">← Back to Dashboard</a>
 </div>
 
-<!-- RESULT: NOT ELIGIBLE -->
+<!-- ══════════════════════════════════════════════
+     RESULT: NOT ELIGIBLE
+     ══════════════════════════════════════════════ -->
 <div id="resultIneligible" class="result-panel">
   <div class="result-top">
     <span class="result-icon">⚠️</span>
     <div class="result-title">Not Eligible at This Time</div>
-    <div class="result-sub">Based on your answers, you are temporarily or permanently deferred.</div>
+    <div class="result-sub">Based on your answers, you are temporarily or permanently deferred from donating.</div>
     <span class="badge-no">⚠ Deferred from Donation</span>
   </div>
   <div class="info-block warn">
@@ -480,42 +673,66 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
   <div class="info-block good">
     <div class="info-block-title">What You Can Do</div>
     <ul class="info-list good">
-      <li>Wait until the deferral period has passed, then try again.</li>
-      <li>Consult your doctor if you have an ongoing medical condition.</li>
-      <li>You can still help by encouraging others to donate!</li>
+      <li>Wait until your deferral period has passed, then retake the screening.</li>
+      <li>Consult your doctor if a medical condition or medication is the reason.</li>
+      <li>You can still help by encouraging family and friends to donate!</li>
+      <li>Check back regularly — most deferrals are temporary.</li>
     </ul>
   </div>
   <button class="ghost-btn" onclick="restartQuiz()" style="margin-top:0;border-color:var(--red);color:var(--red)">↺ Retake Screening</button>
   <a href="user_dashboard.php" class="ghost-btn">← Back to Dashboard</a>
 </div>
 
-<!-- STEP 2: DONATION FORM -->
+<!-- ══════════════════════════════════════════════
+     STEP 2: DONATION FORM
+     ══════════════════════════════════════════════ -->
 <div id="donationForm" class="form-panel">
   <div class="form-head">
     <div class="ctitle">🩸 Donor Details</div>
-    <div class="csub">All fields are required</div>
+    <div class="csub">Fill in your information — all fields are required</div>
   </div>
   <div class="card-body">
     <?php if($error):?><div class="aerr">⚠ <?=htmlspecialchars($error)?></div><?php endif;?>
-    <form method="POST">
+    <form method="POST" id="donateForm">
+      <!-- Hidden screening fields (populated by JS before submit) -->
+      <input type="hidden" name="sc_age"            id="sc_age">
+      <input type="hidden" name="sc_weight"         id="sc_weight">
+      <input type="hidden" name="sc_last_donated"   id="sc_last_donated">
+      <input type="hidden" name="sc_feeling_well"   id="sc_feeling_well">
+      <input type="hidden" name="sc_heart_condition" id="sc_heart_condition">
+      <input type="hidden" name="sc_diabetes"       id="sc_diabetes">
+      <input type="hidden" name="sc_hepatitis_hiv"  id="sc_hepatitis_hiv">
+      <input type="hidden" name="sc_active_cancer"  id="sc_active_cancer">
+      <input type="hidden" name="sc_travel_endemic" id="sc_travel_endemic">
+      <input type="hidden" name="sc_tattoo_piercing" id="sc_tattoo_piercing">
+      <input type="hidden" name="sc_iv_drugs"       id="sc_iv_drugs">
+      <input type="hidden" name="sc_recent_procedure" id="sc_recent_procedure">
+      <input type="hidden" name="sc_pregnant"       id="sc_pregnant">
+      <input type="hidden" name="sc_medications"    id="sc_medications">
+      <input type="hidden" name="sc_recent_vaccine" id="sc_recent_vaccine">
+
       <div class="sect-label">Personal Information</div>
       <div class="fgrid">
-        <div class="field full"><label>Full Name</label><input type="text" name="fullname" placeholder="Your full name" required></div>
-        <div class="field"><label>Email</label><input type="email" name="email" placeholder="Email address" required></div>
-        <div class="field"><label>Phone</label><input type="text" name="phone" placeholder="Phone number" required></div>
+        <div class="field full"><label>Full Name</label><input type="text" name="fullname" placeholder="Your full legal name" required></div>
+        <div class="field"><label>Email Address</label><input type="email" name="email" placeholder="you@email.com" required></div>
+        <div class="field"><label>Phone Number</label><input type="text" name="phone" placeholder="e.g. 09171234567" required></div>
         <div class="field full"><label>Date of Birth</label><input type="date" name="birthdate" required></div>
-        <div class="field full"><label>Permanent Address</label><textarea name="address" placeholder="Your full address" rows="2" required></textarea></div>
+        <div class="field full"><label>Permanent Address</label><textarea name="address" placeholder="Street, Barangay, City, Province" rows="2" required></textarea></div>
       </div>
+
       <div class="sect-label">Blood Details</div>
       <div class="fgrid">
         <div class="field full"><label>Blood Type</label>
           <select name="blood" required>
-            <option value="">Select blood type</option>
-            <option>O+</option><option>O-</option><option>A+</option><option>A-</option>
-            <option>B+</option><option>B-</option><option>AB+</option><option>AB-</option>
+            <option value="">Select your blood type</option>
+            <option>O+</option><option>O-</option>
+            <option>A+</option><option>A-</option>
+            <option>B+</option><option>B-</option>
+            <option>AB+</option><option>AB-</option>
           </select>
         </div>
       </div>
+
       <div class="sect-label">Donation Hospital</div>
       <input type="hidden" name="hospital" id="hospitalInput" value="">
       <div class="hosp-picker">
@@ -537,23 +754,27 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
         <!-- Manual fallback -->
         <div class="hosp-divider"><span>or type manually</span></div>
         <div class="hosp-manual">
-          <input type="text" id="manualHospital" placeholder="e.g. Quiapo General Hospital" oninput="setManualHospital(this.value)">
+          <input type="text" id="manualHospital" placeholder="e.g. Philippine General Hospital" oninput="setManualHospital(this.value)">
         </div>
       </div>
 
-      <button class="sbtn" name="donate" id="submitDonateBtn" style="margin-top:20px" onclick="return validateHospital()">Submit Donation →</button>
+      <button type="submit" class="sbtn" name="donate" id="submitDonateBtn" style="margin-top:20px" onclick="populateScreeningFields(); return validateHospital();">
+        Submit Donation →
+      </button>
     </form>
     <a class="back-link" onclick="backToResult()">← Back to Eligibility Result</a>
   </div>
 </div>
 
 <?php else: ?>
-<!-- TICKET -->
+<!-- ══════════════════════════════════════════════
+     TICKET
+     ══════════════════════════════════════════════ -->
 <div class="ticket">
   <div class="tick-top">
     <span class="tick-icon">🎫</span>
     <div class="tick-title">Donation Confirmed</div>
-    <div class="tick-sub">Keep this ticket — present it upon arrival</div>
+    <div class="tick-sub">Keep this ticket — present it upon arrival at the hospital</div>
     <span class="type-badge">🩸 Blood Donation</span>
   </div>
   <div class="tick-rows">
@@ -568,7 +789,7 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
   <div class="tick-hosp">
     <div class="th-label">Report to</div>
     <div class="th-name"><?=$hospital?></div>
-    <div class="th-note">Show this screen or print upon arrival</div>
+    <div class="th-note">Show this screen or print it upon arrival</div>
     <a href="user_dashboard.php" class="tdone">Done — Back to Dashboard</a>
   </div>
 </div>
@@ -580,7 +801,8 @@ nav { position:relative;z-index:10;height:66px;display:flex;align-items:center;j
 </div><!-- /pw -->
 
 <script>
-const TOTAL_Q = 7;
+// ── Quiz State ──
+const TOTAL_Q = 15;
 const answers = {};
 
 function updateProgress(current) {
@@ -599,7 +821,9 @@ function selectOpt(el, qid, val) {
     .forEach(s => s.classList.remove('selected-yes','selected-no'));
   el.classList.add(val === 'yes' ? 'selected-yes' : 'selected-no');
   answers[qid] = val;
-  document.getElementById('nextQ' + qid.replace('q','')).classList.add('enabled');
+  const num = qid.replace('q', '');
+  const btn = document.getElementById('nextQ' + num);
+  if (btn) btn.classList.add('enabled');
 }
 
 function checkAge() {
@@ -616,29 +840,81 @@ function checkWeight() {
   document.getElementById('nextQ2').classList.add('enabled');
 }
 
+// ── Populate hidden inputs with quiz answers before form submit ──
+function populateScreeningFields() {
+  document.getElementById('sc_age').value            = answers['q1']  || '';
+  document.getElementById('sc_weight').value         = answers['q2']  || '';
+  document.getElementById('sc_last_donated').value   = answers['q3']  || '';
+  document.getElementById('sc_feeling_well').value   = answers['q4']  || '';
+  document.getElementById('sc_heart_condition').value= answers['q5']  || '';
+  document.getElementById('sc_diabetes').value       = answers['q6']  || '';
+  document.getElementById('sc_hepatitis_hiv').value  = answers['q7']  || '';
+  document.getElementById('sc_active_cancer').value  = answers['q8']  || '';
+  document.getElementById('sc_travel_endemic').value = answers['q9']  || '';
+  document.getElementById('sc_tattoo_piercing').value= answers['q10'] || '';
+  document.getElementById('sc_iv_drugs').value       = answers['q11'] || '';
+  document.getElementById('sc_recent_procedure').value = answers['q12'] || '';
+  document.getElementById('sc_pregnant').value       = answers['q13'] || '';
+  document.getElementById('sc_medications').value    = answers['q14'] || '';
+  document.getElementById('sc_recent_vaccine').value = answers['q15'] || '';
+}
+
+// ── Eligibility Evaluation (all 15 questions) ──
 function evaluateEligibility() {
   const reasons = [];
+
   const age = answers['q1'];
   if (age === undefined || age < 17 || age > 65)
     reasons.push('Age must be between 17 and 65 years old. (Entered: ' + (age ?? 'not confirmed') + ')');
+
   const weight = answers['q2'];
   if (weight === undefined || weight < 50)
     reasons.push('Minimum weight of 50 kg required. (Entered: ' + (weight !== undefined ? weight + ' kg' : 'not confirmed') + ')');
+
   if (answers['q3'] === 'yes')
-    reasons.push('You donated blood within the last 56 days. Wait at least 8 weeks between donations.');
+    reasons.push('You donated blood within the last 56 days. Please wait at least 8 weeks between whole blood donations.');
+
   if (answers['q4'] === 'no')
-    reasons.push('You must be feeling well — no fever, cold, or active illness — on donation day.');
+    reasons.push('You must be feeling completely well — no fever, cold, cough, or active illness — on the day of donation.');
+
   if (answers['q5'] === 'yes')
-    reasons.push('Pregnant women or those who gave birth within the last 6 months are deferred for safety.');
+    reasons.push('A history of heart disease, high blood pressure, or stroke requires a medical clearance letter from your doctor before you can donate.');
+
   if (answers['q6'] === 'yes')
-    reasons.push('A tattoo or piercing within the last 12 months requires a deferral period.');
+    reasons.push('Insulin-dependent or uncontrolled diabetes defers donation. Please consult your doctor for clearance.');
+
   if (answers['q7'] === 'yes')
-    reasons.push('Certain conditions (Hepatitis B/C, HIV, active cancer) or medications (antibiotics, blood thinners) prevent donation.');
+    reasons.push('A positive test for Hepatitis B, Hepatitis C, HIV/AIDS, or syphilis results in a permanent deferral to protect transfusion recipients.');
+
+  if (answers['q8'] === 'yes')
+    reasons.push('Active cancer, leukemia, or blood disorders prevent safe donation at this time. Please consult your doctor.');
+
+  if (answers['q9'] === 'yes')
+    reasons.push('Travel to malaria, dengue, or Zika-endemic areas within the last 12 months requires a deferral period. Please wait until the period has passed.');
+
+  if (answers['q10'] === 'yes')
+    reasons.push('A tattoo, body piercing, or acupuncture within the last 12 months requires a deferral period due to the risk of blood-borne infection.');
+
+  if (answers['q11'] === 'yes')
+    reasons.push('Non-prescribed intravenous (IV) drug use is a permanent disqualification from donating blood due to serious infection risk.');
+
+  if (answers['q12'] === 'yes')
+    reasons.push('Surgery, major dental work, or a blood transfusion within the last 12 months requires a waiting period before you can donate.');
+
+  if (answers['q13'] === 'yes')
+    reasons.push('Pregnancy, having given birth within the last 6 months, or currently breastfeeding defers donation to protect both your health and your baby.');
+
+  if (answers['q14'] === 'yes')
+    reasons.push('Current use of antibiotics, blood thinners (e.g., warfarin), or isotretinoin (Accutane) requires a waiting period after your last dose before donating.');
+
+  if (answers['q15'] === 'yes')
+    reasons.push('Receiving a live vaccine within the last 4 weeks requires a deferral period. Please wait until the 4 weeks have passed and you are feeling well.');
 
   document.getElementById('quizPanel').style.display = 'none';
   setStep1Done();
 
   if (reasons.length === 0) {
+    populateScreeningFields();
     document.getElementById('resultEligible').classList.add('show');
   } else {
     const ul = document.getElementById('reasonList');
@@ -653,11 +929,12 @@ function evaluateEligibility() {
 }
 
 function setStep1Done() {
-  const s1 = document.getElementById('sn1'), l1 = document.getElementById('sl1');
-  s1.className = 'step-num done'; l1.className = 'step-label done';
+  document.getElementById('sn1').className = 'step-num done';
+  document.getElementById('sl1').className = 'step-label done';
 }
 
 function showDonationForm() {
+  populateScreeningFields();
   document.getElementById('resultEligible').classList.remove('show');
   document.getElementById('donationForm').classList.add('show');
   document.getElementById('sn2').className = 'step-num active';
@@ -689,23 +966,21 @@ function restartQuiz() {
   }
   document.getElementById('q1').classList.add('active');
   document.getElementById('progressFill').style.width = '0%';
-  document.getElementById('ageInput').value = '';
+  document.getElementById('ageInput').value   = '';
   document.getElementById('weightInput').value = '';
   document.querySelectorAll('.q-opt').forEach(o => o.classList.remove('selected-yes','selected-no'));
 }
 
-// If PHP returned a form error, skip quiz and show donation form
+// If PHP returned a form error, skip quiz and show donation form directly
 <?php if($error): ?>
   document.getElementById('quizPanel').style.display = 'none';
   setStep1Done();
   showDonationForm();
 <?php endif; ?>
 
-// ── HOSPITAL PICKER ──
+// ── Hospital Picker ──
 function findHospitals() {
-  if (!navigator.geolocation) {
-    showHospStatus('⚠️ Geolocation not supported by your browser.', 'error'); return;
-  }
+  if (!navigator.geolocation) { showHospStatus('⚠️ Geolocation not supported by your browser.', 'error'); return; }
   const btn = document.getElementById('hospLocateBtn');
   btn.disabled = true; btn.textContent = '⏳ Getting location…';
   showHospStatus('📡 Detecting your location…', 'loading');
@@ -717,21 +992,24 @@ function findHospitals() {
     fetch('https://overpass-api.de/api/interpreter', { method:'POST', body:'data='+encodeURIComponent(query) })
       .then(r => r.json())
       .then(data => {
-        btn.disabled = false; btn.innerHTML = '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg> Find Hospitals Near Me';
+        btn.disabled = false;
+        btn.innerHTML = '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg> Find Hospitals Near Me';
         const els = (data.elements||[]).map(el => {
           const elLat = el.lat??el.center?.lat, elLng = el.lon??el.center?.lon;
           return { ...el, dist: haversineKm(lat,lng,elLat,elLng) };
-        }).sort((a,b)=>a.dist-b.dist).slice(0,12);
+        }).sort((a,b) => a.dist - b.dist).slice(0,12);
         if (!els.length) { showHospStatus('No hospitals found within 8 km. Try typing manually.','error'); return; }
         renderHospList(els);
         document.getElementById('hospStatus').style.display = 'none';
       })
       .catch(() => {
-        btn.disabled = false; btn.innerHTML = '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg> Find Hospitals Near Me';
+        btn.disabled = false;
+        btn.innerHTML = '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg> Find Hospitals Near Me';
         showHospStatus('⚠️ Could not reach map service. Type hospital name manually.','error');
       });
   }, err => {
-    btn.disabled = false; btn.innerHTML = '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg> Find Hospitals Near Me';
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg> Find Hospitals Near Me';
     const msgs = {1:'🔒 Location denied. Please allow location or type manually.',2:'📡 Location unavailable.',3:'⏱ Timed out.'};
     showHospStatus(msgs[err.code]||'⚠️ Could not get location.','error');
   }, { enableHighAccuracy:true, timeout:12000, maximumAge:60000 });
@@ -739,7 +1017,7 @@ function findHospitals() {
 
 function renderHospList(hospitals) {
   const list = document.getElementById('hospList');
-  list.innerHTML = hospitals.map((h,i) => {
+  list.innerHTML = hospitals.map(h => {
     const name = h.tags?.name || h.tags?.['name:en'] || 'Unnamed Hospital';
     const dist = h.dist < 1 ? (h.dist*1000).toFixed(0)+' m' : h.dist.toFixed(1)+' km';
     const type = (h.tags?.amenity==='blood_bank'||h.tags?.healthcare==='blood_bank') ? '🩸 Blood Bank' : '🏥 Hospital';
@@ -754,10 +1032,10 @@ function renderHospList(hospitals) {
 function selectHospital(el, name) {
   document.querySelectorAll('.hosp-option').forEach(o => o.classList.remove('selected'));
   el.classList.add('selected');
-  document.getElementById('hospitalInput').value = name;
+  document.getElementById('hospitalInput').value    = name;
   document.getElementById('hospSelectedName').textContent = name;
   document.getElementById('hospSelectedBox').classList.add('show');
-  document.getElementById('manualHospital').value = name;
+  document.getElementById('manualHospital').value   = name;
   document.getElementById('hospList').style.display = 'none';
   document.getElementById('hospStatus').style.display = 'none';
 }
@@ -798,7 +1076,8 @@ function haversineKm(lat1,lng1,lat2,lng2) {
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
-function escH(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+function escH(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 </script>
 </body>
 </html>
