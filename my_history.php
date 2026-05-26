@@ -2,7 +2,6 @@
 session_start();
 include 'db.php';
 
-// Redirect to login if not logged in
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
@@ -10,31 +9,54 @@ if (!isset($_SESSION['user_id'])) {
 
 $user_id = intval($_SESSION['user_id']);
 
-// Fetch this user's donation/request history
+// ── Fetch this user's donation/request history ──
 $stmt = $conn->prepare("SELECT * FROM donations WHERE user_id = ? ORDER BY created_at DESC");
 $stmt->bind_param("i", $user_id);
 $stmt->execute();
 $result = $stmt->get_result();
 
-$history = [];
+$history         = [];
 $total_donations = 0;
 $total_requests  = 0;
 
 while ($row = $result->fetch_assoc()) {
     $history[] = $row;
-    if (strtolower($row['type']) === 'donation') {
-        $total_donations++;
-    } else {
-        $total_requests++;
-    }
+    if (strtolower($row['type']) === 'donation') $total_donations++;
+    else $total_requests++;
 }
-
 $total = count($history);
 $stmt->close();
 
-// Get user's name/email for display
-$uname = $_SESSION['name']  ?? $_SESSION['email'] ?? 'User';
+// ── Fetch screening answers for each donation record ──
+$screenings = [];
+foreach ($history as $row) {
+    if (!empty($row['id'])) {
+        $sid = intval($row['id']);
+        $sc_res = $conn->query(
+            "SELECT * FROM donor_screening WHERE donation_id = $sid LIMIT 1"
+        );
+        if ($sc_res && $sc_res->num_rows > 0) {
+            $screenings[$row['id']] = $sc_res->fetch_assoc();
+        }
+    }
+}
+
+$uname  = $_SESSION['name']  ?? $_SESSION['email'] ?? 'User';
 $uemail = $_SESSION['email'] ?? '';
+
+// ── Helper: format yes/no answer as readable label ──
+function yn(string $val, bool $invertColor = false): string {
+    $isYes = strtolower($val) === 'yes';
+    // For "good" questions (feeling_well) yes=green; for "bad" questions yes=red
+    if ($invertColor) {
+        $cls   = $isYes ? 'sc-pass' : 'sc-fail';
+        $label = $isYes ? '✓ Yes'   : '✗ No';
+    } else {
+        $cls   = $isYes ? 'sc-fail' : 'sc-pass';
+        $label = $isYes ? '✗ Yes'   : '✓ No';
+    }
+    return "<span class=\"sc-pill $cls\">$label</span>";
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -84,13 +106,7 @@ body{
 .g1{position:fixed;top:-300px;right:-200px;z-index:0;width:700px;height:700px;border-radius:50%;background:radial-gradient(circle,rgba(255,100,130,.2) 0%,transparent 60%);pointer-events:none}
 
 /* ── SIDEBAR ── */
-.sidebar{
-    position:fixed;top:0;left:0;width:var(--sidebar);height:100%;
-    background:rgba(255,255,255,.9);border-right:1px solid var(--border);
-    z-index:200;display:flex;flex-direction:column;
-    transform:translateX(-100%);transition:transform .3s ease;
-    backdrop-filter:blur(20px);
-}
+.sidebar{position:fixed;top:0;left:0;width:var(--sidebar);height:100%;background:rgba(255,255,255,.9);border-right:1px solid var(--border);z-index:200;display:flex;flex-direction:column;transform:translateX(-100%);transition:transform .3s ease;backdrop-filter:blur(20px)}
 .sidebar.open{transform:translateX(0)}
 .sb-head{padding:24px 20px;border-bottom:1px solid var(--border)}
 .sb-logo{display:flex;align-items:center;gap:10px;text-decoration:none}
@@ -114,13 +130,7 @@ body{
 .sb-logout:hover{background:rgba(0,0,0,.04);color:var(--t)}
 
 /* ── TOPBAR ── */
-.topbar{
-    position:sticky;top:0;z-index:100;
-    height:64px;display:flex;align-items:center;justify-content:space-between;
-    padding:0 28px;
-    background:rgba(255,255,255,.82);border-bottom:1px solid var(--border);
-    backdrop-filter:blur(20px);
-}
+.topbar{position:sticky;top:0;z-index:100;height:64px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;background:rgba(255,255,255,.82);border-bottom:1px solid var(--border);backdrop-filter:blur(20px)}
 .tb-left{display:flex;align-items:center;gap:14px}
 .menu-btn{background:rgba(0,0,0,.04);border:1px solid var(--border);color:var(--t);width:36px;height:36px;border-radius:9px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .18s;flex-shrink:0}
 .menu-btn:hover{background:rgba(0,0,0,.08)}
@@ -174,20 +184,24 @@ tbody tr:hover td{background:rgba(220,38,38,.03);color:var(--t)}
 .td-id{color:var(--t4);font-size:12px;font-family:monospace}
 .td-name{font-weight:500;color:var(--t)!important}
 
-/* Type badges */
+/* ── BADGES ── */
 .badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:4px 11px;border-radius:6px;letter-spacing:.3px}
 .badge-donation{background:var(--red-m);border:1px solid var(--red-b);color:var(--red)}
 .badge-request{background:var(--blue-m);border:1px solid var(--blue-b);color:var(--blue)}
 .badge-blood{background:var(--red-m);border:1px solid var(--red-b);color:var(--red)}
-
 .td-ticket{font-family:monospace;font-size:12px;color:var(--t3)}
 .td-date{font-size:12px;color:var(--t4)}
 
-/* ── STATUS BADGE ── */
+/* ── STATUS ── */
 .status{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:4px 11px;border-radius:100px}
 .status-pending{background:rgba(202,138,4,.1);border:1px solid rgba(202,138,4,.3);color:#B45309}
 .status-approved{background:var(--green-m);border:1px solid var(--green-b);color:var(--green)}
 .status-completed{background:rgba(107,114,128,.1);border:1px solid rgba(107,114,128,.3);color:#4B5563}
+
+/* ── SCREENING VIEW BUTTON ── */
+.sc-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:7px;font-size:11px;font-weight:600;border:1px solid var(--border-s);background:rgba(255,255,255,.6);color:var(--t3);cursor:pointer;transition:all .18s;font-family:var(--sans)}
+.sc-btn:hover{border-color:var(--red-b);color:var(--red);background:var(--red-m)}
+.sc-none{font-size:11px;color:var(--t4);font-style:italic}
 
 /* ── EMPTY STATE ── */
 .empty-state{padding:72px 24px;text-align:center}
@@ -201,11 +215,40 @@ tbody tr:hover td{background:rgba(220,38,38,.03);color:var(--t)}
 .sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:199;backdrop-filter:blur(2px)}
 .sb-overlay.open{display:block}
 
+/* ── SCREENING MODAL ── */
+.modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:24px}
+.modal-backdrop.open{display:flex}
+.modal{background:#fff;border-radius:20px;width:100%;max-width:560px;max-height:88vh;overflow-y:auto;box-shadow:0 32px 80px rgba(0,0,0,.22);position:relative}
+.modal::-webkit-scrollbar{width:4px}
+.modal::-webkit-scrollbar-thumb{background:var(--border-s);border-radius:4px}
+.modal-head{padding:24px 28px 18px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px;position:sticky;top:0;background:#fff;z-index:1}
+.modal-head h2{font-family:var(--serif);font-size:22px;color:var(--t);margin-bottom:2px}
+.modal-head p{font-size:12px;color:var(--t3);font-weight:300}
+.modal-close{background:rgba(0,0,0,.06);border:none;width:30px;height:30px;border-radius:8px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .18s;flex-shrink:0;color:var(--t2)}
+.modal-close:hover{background:rgba(220,38,38,.1);color:var(--red)}
+.modal-body{padding:20px 28px 28px}
+
+/* Screening sections */
+.sc-section{margin-bottom:22px}
+.sc-section-title{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--t3);padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:12px}
+.sc-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px dashed rgba(0,0,0,.05);gap:12px}
+.sc-row:last-child{border-bottom:none}
+.sc-label{font-size:13px;color:var(--t2);flex:1;line-height:1.4}
+.sc-val{font-size:13px;font-weight:600;color:var(--t);white-space:nowrap}
+.sc-pill{display:inline-flex;align-items:center;padding:3px 10px;border-radius:100px;font-size:11px;font-weight:700;letter-spacing:.3px}
+.sc-pass{background:var(--green-m);border:1px solid var(--green-b);color:var(--green)}
+.sc-fail{background:var(--red-m);border:1px solid var(--red-b);color:var(--red)}
+.sc-eligible-bar{display:flex;align-items:center;justify-content:center;gap:10px;padding:14px;border-radius:12px;margin-bottom:20px;font-size:14px;font-weight:600}
+.sc-eligible-bar.pass{background:var(--green-m);border:1px solid var(--green-b);color:var(--green)}
+.sc-eligible-bar.fail{background:var(--red-m);border:1px solid var(--red-b);color:var(--red)}
+
 @media(max-width:768px){
     .content{padding:20px 16px}
     .stats-row{grid-template-columns:repeat(3,1fr)}
     .topbar{padding:0 16px}
     td,th{padding:10px 12px}
+    .modal{border-radius:14px}
+    .modal-head,.modal-body{padding-left:18px;padding-right:18px}
 }
 </style>
 </head>
@@ -215,7 +258,7 @@ tbody tr:hover td{background:rgba(220,38,38,.03);color:var(--t)}
 
 <div id="sbOverlay" class="sb-overlay" onclick="closeSB()"></div>
 
-<!-- SIDEBAR -->
+<!-- ── SIDEBAR ── -->
 <div id="sidebar" class="sidebar">
     <div class="sb-head">
         <a class="sb-logo" href="#">
@@ -232,20 +275,20 @@ tbody tr:hover td{background:rgba(220,38,38,.03);color:var(--t)}
     </div>
     <div class="sb-nav">
         <div class="sb-section">Navigation</div>
-        <a href="user_dashboard.php" class="sb-link"><span class="sb-link-icon"></span>Home</a>
-        <a href="donate_form.php" class="sb-link"><span class="sb-link-icon"></span>Donate Blood</a>
-        <a href="request_blood_form.php" class="sb-link"><span class="sb-link-icon"></span>Request Blood</a>
-        <a href="my_history.php" class="sb-link active"><span class="sb-link-icon"></span>My History</a>
+        <a href="user_dashboard.php" class="sb-link"><span class="sb-link-icon">🏠</span>Home</a>
+        <a href="donate_form.php" class="sb-link"><span class="sb-link-icon">🩸</span>Donate Blood</a>
+        <a href="request_blood_form.php" class="sb-link"><span class="sb-link-icon">📋</span>Request Blood</a>
+        <a href="my_history.php" class="sb-link active"><span class="sb-link-icon">📂</span>My History</a>
         <div class="sb-section">Account</div>
-        <a href="edit_account.php" class="sb-link"><span class="sb-link-icon"></span>Edit Account</a>
-        <a href="delete_account.php" class="sb-link danger" onclick="return confirm('Are you sure you want to permanently delete your account?')"><span class="sb-link-icon"></span>Delete Account</a>
+        <a href="edit_account.php" class="sb-link"><span class="sb-link-icon">✏️</span>Edit Account</a>
+        <a href="delete_account.php" class="sb-link danger" onclick="return confirm('Are you sure you want to permanently delete your account?')"><span class="sb-link-icon">🗑</span>Delete Account</a>
     </div>
     <div class="sb-foot">
-        <a href="logout.php" class="sb-logout"><span class="sb-link-icon"></span>Sign Out</a>
+        <a href="logout.php" class="sb-logout"><span class="sb-link-icon">🚪</span>Sign Out</a>
     </div>
 </div>
 
-<!-- TOPBAR -->
+<!-- ── TOPBAR ── -->
 <div class="topbar">
     <div class="tb-left">
         <button class="menu-btn" onclick="toggleSB()">☰</button>
@@ -256,7 +299,7 @@ tbody tr:hover td{background:rgba(220,38,38,.03);color:var(--t)}
     </div>
 </div>
 
-<!-- CONTENT -->
+<!-- ── CONTENT ── -->
 <div class="content">
     <div class="page-hd">
         <div class="page-hd-l">
@@ -288,8 +331,8 @@ tbody tr:hover td{background:rgba(220,38,38,.03);color:var(--t)}
     <!-- FILTER TABS -->
     <div class="filter-row">
         <button class="filter-btn active" onclick="filterTable('all', this)">All Records</button>
-        <button class="filter-btn" onclick="filterTable('donation', this)"> Donations</button>
-        <button class="filter-btn" onclick="filterTable('request', this)"> Requests</button>
+        <button class="filter-btn" onclick="filterTable('donation', this)">🩸 Donations</button>
+        <button class="filter-btn" onclick="filterTable('request', this)">📋 Requests</button>
     </div>
 
     <!-- TABLE -->
@@ -313,12 +356,13 @@ tbody tr:hover td{background:rgba(220,38,38,.03);color:var(--t)}
                         <th>Hospital</th>
                         <th>Date</th>
                         <th>Status</th>
+                        <th>Screening</th>
                     </tr>
                 </thead>
                 <tbody id="historyBody">
                 <?php if ($total === 0): ?>
                     <tr>
-                        <td colspan="8">
+                        <td colspan="9">
                             <div class="empty-state">
                                 <div class="empty-icon">🩸</div>
                                 <h3>No records yet</h3>
@@ -328,10 +372,10 @@ tbody tr:hover td{background:rgba(220,38,38,.03);color:var(--t)}
                         </td>
                     </tr>
                 <?php else: foreach ($history as $i => $row):
-                    $type     = strtolower($row['type'] ?? 'donation');
-                    $status   = strtolower($row['status'] ?? 'pending');
-                    $badgeClass = $type === 'donation' ? 'badge-donation' : 'badge-request';
-                    $typeLabel  = $type === 'donation'  ? '🩸 Donation' : '📋 Request';
+                    $type        = strtolower($row['type'] ?? 'donation');
+                    $status      = strtolower($row['status'] ?? 'pending');
+                    $badgeClass  = $type === 'donation' ? 'badge-donation' : 'badge-request';
+                    $typeLabel   = $type === 'donation'  ? '🩸 Donation' : '📋 Request';
                     $statusClass = match($status) {
                         'approved'  => 'status-approved',
                         'completed' => 'status-completed',
@@ -342,6 +386,7 @@ tbody tr:hover td{background:rgba(220,38,38,.03);color:var(--t)}
                         'completed' => '✔ Completed',
                         default     => '⏳ Pending',
                     };
+                    $hasScreening = isset($screenings[$row['id']]);
                 ?>
                     <tr data-type="<?= htmlspecialchars($type) ?>">
                         <td class="td-id"><?= $i + 1 ?></td>
@@ -352,13 +397,170 @@ tbody tr:hover td{background:rgba(220,38,38,.03);color:var(--t)}
                         <td><?= htmlspecialchars($row['hospital'] ?? '—') ?></td>
                         <td class="td-date"><?= isset($row['created_at']) ? date('M j, Y', strtotime($row['created_at'])) : '—' ?></td>
                         <td><span class="status <?= $statusClass ?>"><?= $statusLabel ?></span></td>
+                        <td>
+                          <?php if ($hasScreening): ?>
+                            <button class="sc-btn" onclick="openScreeningModal(<?= $row['id'] ?>)">
+                              🩺 View
+                            </button>
+                          <?php else: ?>
+                            <span class="sc-none">N/A</span>
+                          <?php endif; ?>
+                        </td>
                     </tr>
                 <?php endforeach; endif; ?>
                 </tbody>
             </table>
         </div>
     </div>
-</div>
+</div><!-- /content -->
+
+<!-- ══════════════════════════════════════════════
+     SCREENING MODALS (one per donation with screening data)
+     ══════════════════════════════════════════════ -->
+<?php foreach ($screenings as $did => $sc): ?>
+<div class="modal-backdrop" id="scModal<?= $did ?>" onclick="closeModalOutside(event, <?= $did ?>)">
+  <div class="modal" role="dialog" aria-label="Screening Details">
+    <div class="modal-head">
+      <div>
+        <h2>🩺 Screening Details</h2>
+        <p>Eligibility quiz answers recorded at the time of this donation</p>
+      </div>
+      <button class="modal-close" onclick="closeModal(<?= $did ?>)">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Eligibility result banner -->
+      <div class="sc-eligible-bar <?= strtolower($sc['eligible'] ?? 'yes') === 'yes' ? 'pass' : 'fail' ?>">
+        <?= strtolower($sc['eligible'] ?? 'yes') === 'yes'
+            ? '✓ Passed All 15 Eligibility Checks'
+            : '✗ One or More Checks Not Met' ?>
+      </div>
+
+      <!-- Section A: Vitals -->
+      <div class="sc-section">
+        <div class="sc-section-title">Section A — Vitals</div>
+        <div class="sc-row">
+          <span class="sc-label">Age at time of donation</span>
+          <span class="sc-val">
+            <?php if (!empty($sc['sc_age'])): ?>
+              <span class="sc-pill <?= ($sc['sc_age'] >= 17 && $sc['sc_age'] <= 65) ? 'sc-pass' : 'sc-fail' ?>">
+                <?= intval($sc['sc_age']) ?> yrs
+              </span>
+            <?php else: ?><span class="sc-pill">—</span><?php endif; ?>
+          </span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-label">Body weight</span>
+          <span class="sc-val">
+            <?php if (!empty($sc['sc_weight'])): ?>
+              <span class="sc-pill <?= ($sc['sc_weight'] >= 50) ? 'sc-pass' : 'sc-fail' ?>">
+                <?= number_format($sc['sc_weight'], 1) ?> kg
+              </span>
+            <?php else: ?><span class="sc-pill">—</span><?php endif; ?>
+          </span>
+        </div>
+      </div>
+
+      <!-- Section B: Donation History -->
+      <div class="sc-section">
+        <div class="sc-section-title">Section B — Donation History</div>
+        <div class="sc-row">
+          <span class="sc-label">Donated blood within last 56 days?</span>
+          <span class="sc-val"><?= yn($sc['sc_last_donated'] ?? '') ?></span>
+        </div>
+      </div>
+
+      <!-- Section C: Current Health -->
+      <div class="sc-section">
+        <div class="sc-section-title">Section C — Current Health</div>
+        <div class="sc-row">
+          <span class="sc-label">Feeling well on donation day (no fever, cold, or illness)?</span>
+          <span class="sc-val"><?= yn($sc['sc_feeling_well'] ?? '', true) ?></span>
+        </div>
+      </div>
+
+      <!-- Section D: Medical History -->
+      <div class="sc-section">
+        <div class="sc-section-title">Section D — Medical History</div>
+        <div class="sc-row">
+          <span class="sc-label">History of heart disease, high blood pressure, or stroke?</span>
+          <span class="sc-val"><?= yn($sc['sc_heart_condition'] ?? '') ?></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-label">Insulin-dependent or uncontrolled diabetes?</span>
+          <span class="sc-val"><?= yn($sc['sc_diabetes'] ?? '') ?></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-label">Tested positive for Hepatitis B/C, HIV/AIDS, or syphilis?</span>
+          <span class="sc-val"><?= yn($sc['sc_hepatitis_hiv'] ?? '') ?></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-label">Active cancer or blood disorder (e.g., leukemia, sickle cell)?</span>
+          <span class="sc-val"><?= yn($sc['sc_active_cancer'] ?? '') ?></span>
+        </div>
+      </div>
+
+      <!-- Section E: Travel -->
+      <div class="sc-section">
+        <div class="sc-section-title">Section E — Travel History</div>
+        <div class="sc-row">
+          <span class="sc-label">Traveled to malaria, dengue, or Zika-endemic area in last 12 months?</span>
+          <span class="sc-val"><?= yn($sc['sc_travel_endemic'] ?? '') ?></span>
+        </div>
+      </div>
+
+      <!-- Section F: Lifestyle -->
+      <div class="sc-section">
+        <div class="sc-section-title">Section F — Lifestyle & Risk Behaviors</div>
+        <div class="sc-row">
+          <span class="sc-label">Tattoo, body piercing, or acupuncture in last 12 months?</span>
+          <span class="sc-val"><?= yn($sc['sc_tattoo_piercing'] ?? '') ?></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-label">Non-prescribed intravenous (IV) drug use?</span>
+          <span class="sc-val"><?= yn($sc['sc_iv_drugs'] ?? '') ?></span>
+        </div>
+      </div>
+
+      <!-- Section G: Recent Procedures -->
+      <div class="sc-section">
+        <div class="sc-section-title">Section G — Recent Procedures</div>
+        <div class="sc-row">
+          <span class="sc-label">Surgery, major dental work, or blood transfusion in last 12 months?</span>
+          <span class="sc-val"><?= yn($sc['sc_recent_procedure'] ?? '') ?></span>
+        </div>
+      </div>
+
+      <!-- Section H: Pregnancy -->
+      <div class="sc-section">
+        <div class="sc-section-title">Section H — Pregnancy & Maternal Health</div>
+        <div class="sc-row">
+          <span class="sc-label">Pregnant, gave birth within 6 months, or breastfeeding?</span>
+          <span class="sc-val"><?= yn($sc['sc_pregnant'] ?? '') ?></span>
+        </div>
+      </div>
+
+      <!-- Section I: Medications -->
+      <div class="sc-section">
+        <div class="sc-section-title">Section I — Medications</div>
+        <div class="sc-row">
+          <span class="sc-label">Currently on antibiotics, blood thinners, or isotretinoin (Accutane)?</span>
+          <span class="sc-val"><?= yn($sc['sc_medications'] ?? '') ?></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-label">Received any vaccine in the last 4 weeks?</span>
+          <span class="sc-val"><?= yn($sc['sc_recent_vaccine'] ?? '') ?></span>
+        </div>
+      </div>
+
+      <div style="font-size:11px;color:var(--t4);text-align:center;margin-top:4px">
+        Recorded: <?= isset($sc['created_at']) ? date('F j, Y · g:i A', strtotime($sc['created_at'])) : '—' ?>
+      </div>
+
+    </div><!-- /modal-body -->
+  </div><!-- /modal -->
+</div><!-- /modal-backdrop -->
+<?php endforeach; ?>
 
 <script>
 function toggleSB() {
@@ -371,24 +573,40 @@ function closeSB() {
 }
 
 function filterTable(type, btn) {
-    // Update active button
     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-
     const rows = document.querySelectorAll('#historyBody tr[data-type]');
     let visible = 0;
-
     rows.forEach(row => {
         if (type === 'all' || row.dataset.type === type) {
-            row.style.display = '';
-            visible++;
+            row.style.display = ''; visible++;
         } else {
             row.style.display = 'none';
         }
     });
-
     document.getElementById('recordCount').textContent = visible;
 }
+
+function openScreeningModal(id) {
+    const modal = document.getElementById('scModal' + id);
+    if (modal) { modal.classList.add('open'); document.body.style.overflow = 'hidden'; }
+}
+function closeModal(id) {
+    const modal = document.getElementById('scModal' + id);
+    if (modal) { modal.classList.remove('open'); document.body.style.overflow = ''; }
+}
+function closeModalOutside(event, id) {
+    if (event.target === event.currentTarget) closeModal(id);
+}
+// Close any open modal on Escape
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-backdrop.open').forEach(m => {
+            m.classList.remove('open');
+            document.body.style.overflow = '';
+        });
+    }
+});
 </script>
 </body>
 </html>
